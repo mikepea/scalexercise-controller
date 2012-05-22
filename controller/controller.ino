@@ -6,6 +6,8 @@
 // include the SPI library for Digital Pots
 #include <SPI.h>
 
+//#define DEBUG_CONTROLLER_VALUES 
+
 #define NUM_CONTROLLERS 6
 #define NUM_BUTTON_LEDS 4
 #define THR_STEP 2   // 
@@ -55,11 +57,18 @@ boolean button_led_state[4] = {0, 0, 0, 0};
 // the command to set a value to the MCP41xxx
 const int command = B10001;
 
-int throttle_value[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
-int brake_button_value[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
-int changelane_button_value[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
+unsigned int throttle_value[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
+unsigned int brake_button_value[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
+unsigned int changelane_button_value[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
+unsigned long last_press_time[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
+unsigned long last_debounce_time[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
+float target[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
 
-int incomingByte = 0;
+unsigned int bounce_delay = 0;
+unsigned int button_state[NUM_CONTROLLERS] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH};
+unsigned int last_button_state[NUM_CONTROLLERS] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH};
+
+unsigned int incomingByte = 0;
 
 void setup() {
   // set the slaveSelectPin as an output:
@@ -107,34 +116,51 @@ void loop() {
   counter++;
   counter = counter % 1000;
   
-  delay(1);
+  //delay(1);
     
 }
 
-int bounce_delay = 0;
-int button_state = HIGH;
-int last_button_state = HIGH;
-int press_count = 0;
-long last_debounce_time = 0;
 
 void processIncomingArcadeButtons() {
-  int reading = digitalRead(button_pin);
 
-  if ( reading != last_button_state ) {
-    last_debounce_time = millis();
-  }
+  for ( int i=0; i<NUM_CONTROLLERS; i++) {
+    //throttle_value[i] = throttle_value[i] % MAX_THROTTLE_VALUE;
+    int reading = digitalRead(button_pin);
+
+    if ( reading != last_button_state[i] ) {
+      last_debounce_time[i] = millis();
+    }
   
   if ((millis() - last_debounce_time) >= bounce_delay ) {
     button_state = reading;
   }
 
+  if ( millis() - last_press_time > 1000 ) {
+      target = 0; // timeout
+      current_value = smooth(target, 0.9, current_value);
+  }
+
   if ( button_state == LOW and last_button_state == HIGH ) {
-    press_count++;
-    Serial.print(press_count);
-    Serial.println(": button down!");
+    // pressed!
+    unsigned long diff = millis() - last_press_time;
+    last_press_time = millis();
+    Serial.print("diff: ");
+    Serial.println(diff);
+    target = (1.0 / diff) * 10000;
+    Serial.print("target: ");
+    Serial.println(target);
+    target = (1.0 / diff) * 50000;
+
+    current_value = smooth(target, 0.9, current_value);
+
   } else if ( button_state == HIGH and last_button_state == LOW ) {
     Serial.print(press_count);
     Serial.println(": button up!");
+  }
+
+  if ( counter % 100 == 0 )  {
+    Serial.print("smoothed value: ");
+    Serial.println(current_value);
   }
 
   last_button_state = reading;
@@ -149,6 +175,7 @@ void processIncomingCommands() {
 void writeAllPotValues() {
   for ( int i=0; i<NUM_CONTROLLERS; i++) {
     throttle_value[i] = throttle_value[i] % MAX_THROTTLE_VALUE;
+#ifdef DEBUG_CONTROLLER_VALUES
     if ( counter % ( 500 / WRITE_DELAY ) == 0 ) {
       Serial.print("t");
       Serial.print(i+1);
@@ -159,6 +186,7 @@ void writeAllPotValues() {
       Serial.print(": ");
       Serial.println(brake_button_value[i] + changelane_button_value[i]);
     }
+#endif
     digitalPotWrite(i*2, command, 255 - (brake_button_value[i] + changelane_button_value[i]) );
     digitalPotWrite(i*2+1, command, throttle_value[i]);
   }
@@ -272,3 +300,13 @@ void processSerialData() {
   }
 }
 
+float smooth(float data, float filterVal, float smoothedVal){
+  if (filterVal > 1){      // check to make sure param's are within range
+    filterVal = .99;
+  }
+  else if (filterVal <= 0){
+    filterVal = 0;
+  }
+  smoothedVal = (data * (1 - filterVal)) + (smoothedVal  *  filterVal);
+  return smoothedVal;
+}
