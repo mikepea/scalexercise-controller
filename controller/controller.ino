@@ -47,9 +47,7 @@ int dataPin = 13;
 // 
 
 //int throttle_pin[NUM_CONTROLLERS] = {9, 7, 5};
-//int button_pin[NUM_CONTROLLERS] = {10, 8, 6};
 
-const int button_pin = 4;
 
 int button_led_pin[4] = {7, 6, 5, 4};
 boolean button_led_state[4] = {0, 0, 0, 0};
@@ -57,6 +55,9 @@ boolean button_led_state[4] = {0, 0, 0, 0};
 // the command to set a value to the MCP41xxx
 const int command = B10001;
 
+const unsigned int button_pin[NUM_CONTROLLERS] = {4, 5, 0, 0, 0, 0};
+const unsigned int button_timeout[NUM_CONTROLLERS] = {1000, 500, 500, 500, 500, 500};
+const unsigned long pulse_multiplier[NUM_CONTROLLERS] = {300000, 10000, 500, 500, 500, 500}; // higher for less pulses
 unsigned int throttle_value[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
 unsigned int brake_button_value[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
 unsigned int changelane_button_value[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
@@ -87,13 +88,15 @@ void setup() {
   pinMode(clockPin, OUTPUT);
   pinMode(dataPin, OUTPUT);
 
-  pinMode(button_pin, INPUT);
-  digitalWrite(button_pin, HIGH); // enable internal pull-up
 
   // init the chips.
   for (int i=0; i<NUM_CONTROLLERS; i++) {
     digitalPotWrite(2*i, command, 255);
     digitalPotWrite(2*i+1, command, 0);
+    if ( button_pin[i] > 0 ) {
+      pinMode(button_pin[i], INPUT);
+      digitalWrite(button_pin[i], HIGH); // enable internal pull-up
+    }
   }
 
 }
@@ -125,45 +128,55 @@ void processIncomingArcadeButtons() {
 
   for ( int i=0; i<NUM_CONTROLLERS; i++) {
     //throttle_value[i] = throttle_value[i] % MAX_THROTTLE_VALUE;
-    int reading = digitalRead(button_pin);
+    int reading;
+    if ( button_pin[i] > 0 ) {
+      reading = digitalRead(button_pin[i]);
+    } else {
+      reading = last_button_state[i]; // spoof no input from unassigned button
+    }
 
     if ( reading != last_button_state[i] ) {
       last_debounce_time[i] = millis();
     }
   
-  if ((millis() - last_debounce_time) >= bounce_delay ) {
-    button_state = reading;
+    if ((millis() - last_debounce_time[i]) >= bounce_delay ) {
+      button_state[i] = reading;
+    }
+
+    if ( millis() - last_press_time[i] > button_timeout[i] ) {
+      target[i] = 0; // timeout
+      throttle_value[i] = smooth(target[i], 0.9, throttle_value[i]);
+    }
+
+    if ( button_state[i] == LOW and last_button_state[i] == HIGH ) {
+      // pressed!
+      unsigned long diff = millis() - last_press_time[i];
+      last_press_time[i] = millis();
+      target[i] = (1.0 / diff) * pulse_multiplier[i];
+      throttle_value[i] = smooth(target[i], 0.9, throttle_value[i]);
+      Serial.print(i);
+      Serial.print(": ");
+      Serial.print("diff: ");
+      Serial.print(diff);
+      Serial.print(", target: ");
+      Serial.print(target[i]);
+      Serial.print(", throttle_value: ");
+      Serial.println(throttle_value[i]);
+
+    } else if ( button_state[i] == HIGH and last_button_state[i] == LOW ) {
+      //Serial.print(press_count);
+      //Serial.println(": button up!");
+    }
+
+    if ( counter % 100 == 0 )  {
+      Serial.print(i);
+      Serial.print(": throttle_value: ");
+      Serial.println(throttle_value[i]);
+    }
+
+    last_button_state[i] = reading;
+
   }
-
-  if ( millis() - last_press_time > 1000 ) {
-      target = 0; // timeout
-      current_value = smooth(target, 0.9, current_value);
-  }
-
-  if ( button_state == LOW and last_button_state == HIGH ) {
-    // pressed!
-    unsigned long diff = millis() - last_press_time;
-    last_press_time = millis();
-    Serial.print("diff: ");
-    Serial.println(diff);
-    target = (1.0 / diff) * 10000;
-    Serial.print("target: ");
-    Serial.println(target);
-    target = (1.0 / diff) * 50000;
-
-    current_value = smooth(target, 0.9, current_value);
-
-  } else if ( button_state == HIGH and last_button_state == LOW ) {
-    Serial.print(press_count);
-    Serial.println(": button up!");
-  }
-
-  if ( counter % 100 == 0 )  {
-    Serial.print("smoothed value: ");
-    Serial.println(current_value);
-  }
-
-  last_button_state = reading;
 
 }
 
