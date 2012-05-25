@@ -8,6 +8,8 @@
 
 //#define DEBUG_CONTROLLER_VALUES 
 
+//#define DISPLAY_THROTTLE_VALUES
+#define THROTTLE_DISPLAY_INTERVAL 1000
 #define NUM_CONTROLLERS 6
 #define NUM_BUTTON_LEDS 4
 #define THR_STEP 2   // 
@@ -49,15 +51,14 @@ int dataPin = 13;
 //int throttle_pin[NUM_CONTROLLERS] = {9, 7, 5};
 
 
-int button_led_pin[4] = {7, 6, 5, 4};
-boolean button_led_state[4] = {0, 0, 0, 0};
-
 // the command to set a value to the MCP41xxx
 const int command = B10001;
 
+const unsigned int diff_threshold = 30;
+
 const unsigned int button_pin[NUM_CONTROLLERS] = {4, 5, 0, 0, 0, 0};
-const unsigned int button_timeout[NUM_CONTROLLERS] = {1000, 500, 500, 500, 500, 500};
-const unsigned long pulse_multiplier[NUM_CONTROLLERS] = {300000, 10000, 500, 500, 500, 500}; // higher for less pulses
+const unsigned int button_timeout[NUM_CONTROLLERS] = {1000, 1000, 500, 500, 500, 500};
+const unsigned long pulse_multiplier[NUM_CONTROLLERS] = {100000, 30000, 500, 500, 500, 500}; // higher for less pulses
 unsigned int throttle_value[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
 unsigned int brake_button_value[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
 unsigned int changelane_button_value[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
@@ -65,9 +66,10 @@ unsigned long last_press_time[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
 unsigned long last_debounce_time[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
 float target[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
 
-unsigned int bounce_delay = 0;
-unsigned int button_state[NUM_CONTROLLERS] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH};
-unsigned int last_button_state[NUM_CONTROLLERS] = {HIGH, HIGH, HIGH, HIGH, HIGH, HIGH};
+unsigned int debounce_delay[NUM_CONTROLLERS]    = {0,    0,  0,    0,    0,    0 };
+bool button_off_state[NUM_CONTROLLERS]  = {LOW, HIGH,  LOW,  LOW,  LOW,  LOW}; //{HIGH, LOW,  HIGH, HIGH, HIGH, HIGH};
+bool button_state[NUM_CONTROLLERS]      = {LOW, HIGH,  LOW,  LOW,  LOW,  LOW}; //{HIGH, LOW,  HIGH, HIGH, HIGH, HIGH};
+bool last_button_state[NUM_CONTROLLERS] = {LOW, HIGH,  LOW,  LOW,  LOW,  LOW}; //{HIGH, LOW,  HIGH, HIGH, HIGH, HIGH};
 
 unsigned int incomingByte = 0;
 
@@ -137,42 +139,53 @@ void processIncomingArcadeButtons() {
 
     if ( reading != last_button_state[i] ) {
       last_debounce_time[i] = millis();
+      Serial.print(i+1);
+      Serial.print(": ");
+      Serial.print(": got reading: ");
+      Serial.print(reading, DEC);
+      Serial.print(" : millis=");
+      Serial.println(millis(), DEC);
     }
   
-    if ((millis() - last_debounce_time[i]) >= bounce_delay ) {
+    if ((millis() - last_debounce_time[i]) >= debounce_delay[i] ) {
       button_state[i] = reading;
-    }
+    } 
 
     if ( millis() - last_press_time[i] > button_timeout[i] ) {
       target[i] = 0; // timeout
       throttle_value[i] = smooth(target[i], 0.9, throttle_value[i]);
+      //last_press_time[i] = millis();
     }
 
-    if ( button_state[i] == LOW and last_button_state[i] == HIGH ) {
+    if ( button_state[i] != button_off_state[i] and last_button_state[i] == button_off_state[i] ) {
       // pressed!
       unsigned long diff = millis() - last_press_time[i];
       last_press_time[i] = millis();
-      target[i] = (1.0 / diff) * pulse_multiplier[i];
-      throttle_value[i] = smooth(target[i], 0.9, throttle_value[i]);
-      Serial.print(i);
-      Serial.print(": ");
-      Serial.print("diff: ");
-      Serial.print(diff);
-      Serial.print(", target: ");
-      Serial.print(target[i]);
-      Serial.print(", throttle_value: ");
-      Serial.println(throttle_value[i]);
+      if ( diff > diff_threshold ) {
+        target[i] = (1.0 / diff) * pulse_multiplier[i];
+        throttle_value[i] = smooth(target[i], 0.9, throttle_value[i]);
+        Serial.print(i+1);
+        Serial.print(": ");
+        Serial.print("diff: ");
+        Serial.print(diff);
+        Serial.print(", target: ");
+        Serial.print(target[i]);
+        Serial.print(", throttle_value: ");
+        Serial.println(throttle_value[i]);
+      }
 
-    } else if ( button_state[i] == HIGH and last_button_state[i] == LOW ) {
-      //Serial.print(press_count);
+    } else if ( button_state[i] == button_off_state[i] and last_button_state[i] != button_off_state[i] ) {
+      //Serial.print(i+1);
       //Serial.println(": button up!");
     }
 
-    if ( counter % 100 == 0 )  {
-      Serial.print(i);
+#ifdef DISPLAY_THROTTLE_VALUES
+    if ( counter % THROTTLE_DISPLAY_INTERVAL == 0 )  {
+      Serial.print(i+1);
       Serial.print(": throttle_value: ");
       Serial.println(throttle_value[i]);
     }
+#endif
 
     last_button_state[i] = reading;
 
