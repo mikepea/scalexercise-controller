@@ -7,6 +7,7 @@
 #include <SPI.h>
 
 //#define DEBUG_CONTROLLER_VALUES 
+//#define DEBUG_SMOOTH
 
 //#define DISPLAY_THROTTLE_VALUES
 #define THROTTLE_DISPLAY_INTERVAL 1000
@@ -23,11 +24,15 @@
 // shift register setup
 
 //Pin connected to ST_CP of 74HC595
-int latchPin = 14;
+const int latchPin = 14;
 //Pin connected to SH_CP of 74HC595
-int clockPin = 15;
-////Pin connected to DS of 74HC595
-int dataPin = 13;
+const int clockPin = 15;
+//Pin connected to DS of 74HC595
+const int dataPin = 13;
+
+// blinky light so we know speed of looping
+const int statusLEDPin = 12;
+
 
 // 1q0 == nothing
 // 1q1 == nothing
@@ -50,26 +55,31 @@ int dataPin = 13;
 
 //int throttle_pin[NUM_CONTROLLERS] = {9, 7, 5};
 
-
 // the command to set a value to the MCP41xxx
 const int command = B10001;
 
-const unsigned int diff_threshold = 30;
+const unsigned int diff_threshold[NUM_CONTROLLERS] = {30, 30, 30, 30, 30, 30};
+const float smooth_filter_val[NUM_CONTROLLERS]     = {0.5, 0.5, 0.5, 0.5, 0.5, 0.5};
 
-const unsigned int button_pin[NUM_CONTROLLERS] = {4, 5, 0, 0, 0, 0};
-const unsigned int button_timeout[NUM_CONTROLLERS] = {1000, 1000, 500, 500, 500, 500};
-const unsigned long pulse_multiplier[NUM_CONTROLLERS] = {100000, 30000, 500, 500, 500, 500}; // higher for less pulses
-unsigned int throttle_value[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
-unsigned int brake_button_value[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
-unsigned int changelane_button_value[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
+const unsigned int throttle_pin[NUM_CONTROLLERS]     = {4, 5, 0, 0, 0, 0};
+const unsigned int brake_pin[NUM_CONTROLLERS]        = {6, 7, 0, 0, 0, 0};
+const unsigned int changelane_pin[NUM_CONTROLLERS]   = {8, 9, 0, 0, 0, 0};
+
+const unsigned int throttle_pulse_timeout[NUM_CONTROLLERS] = {500, 250, 100, 100, 500, 500};
+const unsigned long pulse_multiplier[NUM_CONTROLLERS]  = {15000, 30000, 500, 500, 500, 500}; // higher for less pulses
+unsigned int throttle_value[NUM_CONTROLLERS]           = {0, 0, 0, 0, 6, 0};
+unsigned int brake_button_value[NUM_CONTROLLERS]       = {0, 0, 0, 0, 0, 0};
+unsigned int changelane_button_value[NUM_CONTROLLERS]  = {0, 0, 0, 0, 0, 0};
+unsigned int throttle_pulse_timeout_count[NUM_CONTROLLERS]     = {0, 0, 0, 0, 0, 0};
+unsigned int throttle_pulse_timeout_count_max[NUM_CONTROLLERS] = {2, 2, 2, 2, 2, 2};
 unsigned long last_press_time[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
 unsigned long last_debounce_time[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
 float target[NUM_CONTROLLERS] = {0, 0, 0, 0, 0, 0};
 
-unsigned int debounce_delay[NUM_CONTROLLERS]    = {0,    0,  0,    0,    0,    0 };
-bool button_off_state[NUM_CONTROLLERS]  = {LOW, HIGH,  LOW,  LOW,  LOW,  LOW}; //{HIGH, LOW,  HIGH, HIGH, HIGH, HIGH};
-bool button_state[NUM_CONTROLLERS]      = {LOW, HIGH,  LOW,  LOW,  LOW,  LOW}; //{HIGH, LOW,  HIGH, HIGH, HIGH, HIGH};
-bool last_button_state[NUM_CONTROLLERS] = {LOW, HIGH,  LOW,  LOW,  LOW,  LOW}; //{HIGH, LOW,  HIGH, HIGH, HIGH, HIGH};
+unsigned int debounce_delay[NUM_CONTROLLERS] = {0,   0,     0,    0,    0,    0 };
+bool button_off_state[NUM_CONTROLLERS]       = {HIGH, HIGH,  LOW,  LOW,  LOW,  LOW}; //{HIGH, LOW,  HIGH, HIGH, HIGH, HIGH};
+bool button_state[NUM_CONTROLLERS]           = {HIGH, HIGH,  LOW,  LOW,  LOW,  LOW}; //{HIGH, LOW,  HIGH, HIGH, HIGH, HIGH};
+bool last_button_state[NUM_CONTROLLERS]      = {HIGH, HIGH,  LOW,  LOW,  LOW,  LOW}; //{HIGH, LOW,  HIGH, HIGH, HIGH, HIGH};
 
 unsigned int incomingByte = 0;
 
@@ -77,7 +87,7 @@ void setup() {
   // set the slaveSelectPin as an output:
   //for (int i=0; i<NUM_CONTROLLERS; i++) {
   //  pinMode (throttle_pin[i], OUTPUT);
-  //  pinMode (button_pin[i], OUTPUT);
+  //  pinMode (throttle_pin[i], OUTPUT);
   //}
   // initialize SPI:
   SPI.begin();
@@ -89,15 +99,15 @@ void setup() {
   pinMode(latchPin, OUTPUT);
   pinMode(clockPin, OUTPUT);
   pinMode(dataPin, OUTPUT);
-
+  pinMode(statusLEDPin, OUTPUT);
 
   // init the chips.
   for (int i=0; i<NUM_CONTROLLERS; i++) {
     digitalPotWrite(2*i, command, 255);
     digitalPotWrite(2*i+1, command, 0);
-    if ( button_pin[i] > 0 ) {
-      pinMode(button_pin[i], INPUT);
-      digitalWrite(button_pin[i], HIGH); // enable internal pull-up
+    if ( throttle_pin[i] > 0 ) {
+      pinMode(throttle_pin[i], INPUT);
+      digitalWrite(throttle_pin[i], HIGH); // enable internal pull-up
     }
   }
 
@@ -120,27 +130,33 @@ void loop() {
   
   counter++;
   counter = counter % 1000;
-  
-  //delay(1);
-    
+
+  if ( counter % 500 < 250 ) {
+    digitalWrite(statusLEDPin, HIGH);
+  } else {
+    digitalWrite(statusLEDPin, LOW);
+  }
+
 }
 
+void processIncomingCommands() {
+  processSerialData();
+  processIncomingArcadeButtons();
+}
 
 void processIncomingArcadeButtons() {
 
   for ( int i=0; i<NUM_CONTROLLERS; i++) {
-    //throttle_value[i] = throttle_value[i] % MAX_THROTTLE_VALUE;
     int reading;
-    if ( button_pin[i] > 0 ) {
-      reading = digitalRead(button_pin[i]);
+    if ( throttle_pin[i] > 0 ) {
+      reading = digitalRead(throttle_pin[i]);
     } else {
       reading = last_button_state[i]; // spoof no input from unassigned button
     }
 
     if ( reading != last_button_state[i] ) {
       last_debounce_time[i] = millis();
-      Serial.print(i+1);
-      Serial.print(": ");
+      Serial.print(i + 1, DEC);
       Serial.print(": got reading: ");
       Serial.print(reading, DEC);
       Serial.print(" : millis=");
@@ -151,28 +167,40 @@ void processIncomingArcadeButtons() {
       button_state[i] = reading;
     } 
 
-    if ( millis() - last_press_time[i] > button_timeout[i] ) {
+    if ( millis() - last_press_time[i] > throttle_pulse_timeout[i] ) {
       target[i] = 0; // timeout
+      if ( throttle_value[i] != 0 ) {
+        printControllerAndMillis(i+1);
+        Serial.println(": timeout!");
+      }
       throttle_value[i] = smooth(target[i], 0.9, throttle_value[i]);
-      //last_press_time[i] = millis();
+      printThrottleValue(i+1, target[i], throttle_value[i]);
+      if ( throttle_pulse_timeout_count[i] < throttle_pulse_timeout_count_max[i] ) {
+        last_press_time[i] = millis();
+        throttle_pulse_timeout_count[i]++;
+      }
     }
 
     if ( button_state[i] != button_off_state[i] and last_button_state[i] == button_off_state[i] ) {
       // pressed!
-      unsigned long diff = millis() - last_press_time[i];
-      last_press_time[i] = millis();
-      if ( diff > diff_threshold ) {
-        target[i] = (1.0 / diff) * pulse_multiplier[i];
-        throttle_value[i] = smooth(target[i], 0.9, throttle_value[i]);
-        Serial.print(i+1);
-        Serial.print(": ");
-        Serial.print("diff: ");
-        Serial.print(diff);
-        Serial.print(", target: ");
-        Serial.print(target[i]);
-        Serial.print(", throttle_value: ");
-        Serial.println(throttle_value[i]);
+      if ( throttle_pulse_timeout_count[i] > 0 ) {
+        printControllerAndMillis(i+1);
+        Serial.println(": first pulse after timeout");
+        throttle_pulse_timeout_count[i] = 0; // reset timeout counter
+        // add a bit of speed, but nothing too crazy -- this is because we can't trust (millis - last_press_time)
+        throttle_value[i] = min( smooth((throttle_value[i] + 5), smooth_filter_val[i], throttle_value[i]), MAX_THROTTLE_VALUE );
+      } else {
+        unsigned long diff = millis() - last_press_time[i];
+        printControllerAndMillis(i+1);
+        Serial.print(": pulse! -- diff=");
+        Serial.println(diff, DEC);
+        if ( diff > diff_threshold[i] ) {
+          target[i] = min( (1.0 / diff) * pulse_multiplier[i], MAX_THROTTLE_VALUE);
+          throttle_value[i] = min( smooth(target[i], smooth_filter_val[i], throttle_value[i]), MAX_THROTTLE_VALUE );
+          printThrottleValue(i+1, target[i], throttle_value[i]);
+        }
       }
+      last_press_time[i] = millis();
 
     } else if ( button_state[i] == button_off_state[i] and last_button_state[i] != button_off_state[i] ) {
       //Serial.print(i+1);
@@ -193,14 +221,10 @@ void processIncomingArcadeButtons() {
 
 }
 
-void processIncomingCommands() {
-  processSerialData();
-  processIncomingArcadeButtons();
-}
 
 void writeAllPotValues() {
   for ( int i=0; i<NUM_CONTROLLERS; i++) {
-    throttle_value[i] = throttle_value[i] % MAX_THROTTLE_VALUE;
+    throttle_value[i] = min(throttle_value[i],  MAX_THROTTLE_VALUE);
 #ifdef DEBUG_CONTROLLER_VALUES
     if ( counter % ( 500 / WRITE_DELAY ) == 0 ) {
       Serial.print("t");
@@ -285,8 +309,8 @@ void processSerialData() {
     incomingByte = Serial.read();
 
     // say what you got:
-    //Serial.print("I received: ");
-    //Serial.println(incomingByte, DEC);
+    Serial.print("I received: ");
+    Serial.println(incomingByte, DEC);
  
     if      ( incomingByte == '1' ) { throttle_value[0] = throttle_value[0] + THR_STEP; }
     else if ( incomingByte == 'q' ) { throttle_value[0] = throttle_value[0] - THR_STEP; }
@@ -333,6 +357,28 @@ float smooth(float data, float filterVal, float smoothedVal){
   else if (filterVal <= 0){
     filterVal = 0;
   }
-  smoothedVal = (data * (1 - filterVal)) + (smoothedVal  *  filterVal);
-  return smoothedVal;
+  float newSmoothedVal = (data * (1 - filterVal)) + (smoothedVal  *  filterVal);
+#ifdef DEBUG_SMOOTH
+  if ( smoothedVal != 0 ) {
+     Serial.print("smoothedVal: ");
+     Serial.println(newSmoothedVal, DEC);
+  }
+#endif 
+  return newSmoothedVal;
+}
+ 
+void printThrottleValue(int controller, int target, int throttle_value) {
+   if ( throttle_value != 0 ) {
+        printControllerAndMillis(controller);
+        Serial.print(": target: ");
+        Serial.print(target);
+        Serial.print(", throttle_value: ");
+        Serial.println(throttle_value);
+   }
+}
+
+void printControllerAndMillis(int controller) {
+        Serial.print(controller);
+        Serial.print(": millis: ");
+        Serial.print(millis());
 }
