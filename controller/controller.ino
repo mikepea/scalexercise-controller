@@ -8,12 +8,14 @@
 
 //#define DEBUG_CONTROLLER_VALUES 
 //#define DEBUG_SMOOTH
+//#define DEBUG_SERIAL_INPUT
 
-//#define DISPLAY_THROTTLE_VALUES
+#define DISPLAY_THROTTLE_VALUES
 #define THROTTLE_DISPLAY_INTERVAL 1000
 #define NUM_CONTROLLERS 6
 #define NUM_BUTTON_LEDS 4
-#define THR_STEP 2   // 
+#define THR_STEP_UP 4   // 
+#define THR_STEP_DOWN 10   // 
 #define CL_VAL 91    // 18200 ohm
 #define BRAKE_VAL 40 // 8000 ohm
 
@@ -62,12 +64,13 @@ const unsigned int diff_threshold[NUM_CONTROLLERS] = {30, 30, 30, 30, 30, 30};
 const float smooth_filter_val[NUM_CONTROLLERS]     = {0.5, 0.5, 0.5, 0.5, 0.5, 0.5};
 
 const unsigned int throttle_pin[NUM_CONTROLLERS]     = {4, 5, 0, 0, 0, 0};
+unsigned int controller_enabled[NUM_CONTROLLERS]     = {0, 0, 0, 0, 0, 0};
 const unsigned int brake_pin[NUM_CONTROLLERS]        = {6, 7, 0, 0, 0, 0};
 const unsigned int changelane_pin[NUM_CONTROLLERS]   = {8, 9, 0, 0, 0, 0};
 
 const unsigned int throttle_pulse_timeout[NUM_CONTROLLERS] = {500, 250, 100, 100, 500, 500};
 const unsigned long pulse_multiplier[NUM_CONTROLLERS]  = {15000, 30000, 500, 500, 500, 500}; // higher for less pulses
-unsigned int throttle_value[NUM_CONTROLLERS]           = {0, 0, 0, 0, 6, 0};
+unsigned int throttle_value[NUM_CONTROLLERS]           = {0, 0, 0, 0, 0, 0};
 unsigned int brake_button_value[NUM_CONTROLLERS]       = {0, 0, 0, 0, 0, 0};
 unsigned int changelane_button_value[NUM_CONTROLLERS]  = {0, 0, 0, 0, 0, 0};
 unsigned int throttle_pulse_timeout_count[NUM_CONTROLLERS]     = {0, 0, 0, 0, 0, 0};
@@ -125,6 +128,7 @@ void loop() {
   //
   processIncomingCommands();
 
+  displayControllerValues();
   writeAllPotValues();
   setButtonLeds();
   
@@ -147,6 +151,11 @@ void processIncomingCommands() {
 void processIncomingArcadeButtons() {
 
   for ( int i=0; i<NUM_CONTROLLERS; i++) {
+
+    if ( controller_enabled[i] == 0 ) {
+      continue;
+    }
+
     int reading;
     if ( throttle_pin[i] > 0 ) {
       reading = digitalRead(throttle_pin[i]);
@@ -207,13 +216,6 @@ void processIncomingArcadeButtons() {
       //Serial.println(": button up!");
     }
 
-#ifdef DISPLAY_THROTTLE_VALUES
-    if ( counter % THROTTLE_DISPLAY_INTERVAL == 0 )  {
-      Serial.print(i+1);
-      Serial.print(": throttle_value: ");
-      Serial.println(throttle_value[i]);
-    }
-#endif
 
     last_button_state[i] = reading;
 
@@ -221,6 +223,17 @@ void processIncomingArcadeButtons() {
 
 }
 
+void displayControllerValues() {
+    if ( counter % THROTTLE_DISPLAY_INTERVAL == 0 )  {
+      for ( int i=0; i<NUM_CONTROLLERS; i++) {
+#ifdef DISPLAY_THROTTLE_VALUES
+        Serial.print(i+1);
+        Serial.print(": throttle_value: ");
+        Serial.println(throttle_value[i]);
+#endif
+      }
+    }
+}
 
 void writeAllPotValues() {
   for ( int i=0; i<NUM_CONTROLLERS; i++) {
@@ -309,36 +322,44 @@ void processSerialData() {
     incomingByte = Serial.read();
 
     // say what you got:
+#ifdef DEBUG_SERIAL_INPUT
     Serial.print("I received: ");
     Serial.println(incomingByte, DEC);
+#endif
  
-    if      ( incomingByte == '1' ) { throttle_value[0] = throttle_value[0] + THR_STEP; }
-    else if ( incomingByte == 'q' ) { throttle_value[0] = throttle_value[0] - THR_STEP; }
+    if      ( incomingByte == '1' ) { throttle_value[0] = throttle_value[0] + THR_STEP_UP; }
+    else if ( incomingByte == '!' ) { throttle_pin_enabled[0] = throttle_pin_enabled[0] == 0 ? 1 : 0; }
+    else if ( incomingByte == 'q' ) { throttle_value[0] = throttle_value[0] - THR_STEP_DOWN; }
     else if ( incomingByte == 'a' ) { changelane_button_value[0] = changelane_button_value[0] == 0 ? CL_VAL : 0; } 
     else if ( incomingByte == 'z' ) { brake_button_value[0] = brake_button_value[0] == 0 ? BRAKE_VAL : 0; } 
 
-    else if ( incomingByte == '2' ) { throttle_value[1] = throttle_value[1] + THR_STEP; }
-    else if ( incomingByte == 'w' ) { throttle_value[1] = throttle_value[1] - THR_STEP; }
+    else if ( incomingByte == '2' ) { throttle_value[1] = throttle_value[1] + THR_STEP_UP; }
+    else if ( incomingByte == '@' ) { throttle_pin_enabled[1] = throttle_pin_enabled[1] == 0 ? 1 : 0; }
+    else if ( incomingByte == 'w' ) { throttle_value[1] = throttle_value[1] - THR_STEP_DOWN; }
     else if ( incomingByte == 's' ) { changelane_button_value[1] = changelane_button_value[1] == 0 ? CL_VAL : 0; } 
     else if ( incomingByte == 'x' ) { brake_button_value[1] = brake_button_value[1] == 0 ? BRAKE_VAL : 0; } 
 
-    else if ( incomingByte == '3' ) { throttle_value[2] = throttle_value[2] + THR_STEP; }
-    else if ( incomingByte == 'e' ) { throttle_value[2] = throttle_value[2] - THR_STEP; }
+    else if ( incomingByte == '3' ) { throttle_value[2] = throttle_value[2] + THR_STEP_UP; }
+    else if ( incomingByte == '#' ) { throttle_pin_enabled[2] = throttle_pin_enabled[2] == 0 ? 1 : 0; }
+    else if ( incomingByte == 'e' ) { throttle_value[2] = throttle_value[2] - THR_STEP_DOWN; }
     else if ( incomingByte == 'd' ) { changelane_button_value[2] = changelane_button_value[2] == 0 ? CL_VAL : 0; } 
     else if ( incomingByte == 'c' ) { brake_button_value[2] = brake_button_value[2] == 0 ? BRAKE_VAL : 0; } 
 
-    else if ( incomingByte == '4' ) { throttle_value[3] = throttle_value[3] + THR_STEP; }
-    else if ( incomingByte == 'r' ) { throttle_value[3] = throttle_value[3] - THR_STEP; }
+    else if ( incomingByte == '4' ) { throttle_value[3] = throttle_value[3] + THR_STEP_UP; }
+    else if ( incomingByte == '$' ) { throttle_pin_enabled[3] = throttle_pin_enabled[3] == 0 ? 1 : 0; }
+    else if ( incomingByte == 'r' ) { throttle_value[3] = throttle_value[3] - THR_STEP_DOWN; }
     else if ( incomingByte == 'f' ) { changelane_button_value[3] = changelane_button_value[3] == 0 ? CL_VAL : 0; } 
     else if ( incomingByte == 'v' ) { brake_button_value[3] = brake_button_value[3] == 0 ? BRAKE_VAL : 0; } 
 
-    else if ( incomingByte == '5' ) { throttle_value[4] = throttle_value[4] + THR_STEP; }
-    else if ( incomingByte == 't' ) { throttle_value[4] = throttle_value[4] - THR_STEP; }
+    else if ( incomingByte == '5' ) { throttle_value[4] = throttle_value[4] + THR_STEP_UP; }
+    else if ( incomingByte == '%' ) { throttle_pin_enabled[4] = throttle_pin_enabled[4] == 0 ? 1 : 0; }
+    else if ( incomingByte == 't' ) { throttle_value[4] = throttle_value[4] - THR_STEP_DOWN; }
     else if ( incomingByte == 'g' ) { changelane_button_value[4] = changelane_button_value[4] == 0 ? CL_VAL : 0; } 
     else if ( incomingByte == 'b' ) { brake_button_value[4] = brake_button_value[4] == 0 ? BRAKE_VAL : 0; }
 
-    else if ( incomingByte == '6' ) { throttle_value[5] = throttle_value[5] + THR_STEP; }
-    else if ( incomingByte == 'y' ) { throttle_value[5] = throttle_value[5] - THR_STEP; }
+    else if ( incomingByte == '6' ) { throttle_value[5] = throttle_value[5] + THR_STEP_UP; }
+    else if ( incomingByte == '^' ) { throttle_pin_enabled[5] = throttle_pin_enabled[5] == 0 ? 1 : 0; }
+    else if ( incomingByte == 'y' ) { throttle_value[5] = throttle_value[5] - THR_STEP_DOWN; }
     else if ( incomingByte == 'h' ) { changelane_button_value[5] = changelane_button_value[5] == 0 ? CL_VAL : 0; } 
     else if ( incomingByte == 'n' ) { brake_button_value[5] = brake_button_value[5] == 0 ? BRAKE_VAL : 0; }
 
