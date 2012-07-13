@@ -22,7 +22,7 @@
 
 #define WRITE_DELAY 1 // so we can see which LED is being written
 
-#define MAX_THROTTLE_VALUE 100
+#define MAX_THROTTLE_VALUE 80
 
 // shift register setup
 
