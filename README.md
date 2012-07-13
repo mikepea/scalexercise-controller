@@ -16,5 +16,7 @@ to a throttle value. This is designed so that a 'button push' can be replaced wi
 
 Status LED: pin 12 (D7) -- flashes on/off every 500 loops
 
-Controller 1 - Cross trainer: pin 4 (B7), 
-Controller 2 - Bike trainer:  pin 5 (D0), 
+Controller 1 - Brown  - Cross trainer: pin4(B7), pin5(D0), pin6(D1) 
+Controller 2 - Red    - Bike trainer:  pin7(D2), pin8(D3), pin9(C6) 
+Controller 3 - Orange - 
+Controller 4 - Yellow - 
