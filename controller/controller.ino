@@ -115,6 +115,14 @@ void setup() {
       pinMode(throttle_pin[i], INPUT);
       digitalWrite(throttle_pin[i], HIGH); // enable internal pull-up
     }
+    if ( brake_pin[i] > 0 ) {
+      pinMode(brake_pin[i], INPUT);
+      digitalWrite(brake_pin[i], HIGH); // enable internal pull-up
+    }
+    if ( changelane_pin[i] > 0 ) {
+      pinMode(changelane_pin[i], INPUT);
+      digitalWrite(changelane_pin[i], HIGH); // enable internal pull-up
+    }
   }
 
 }
@@ -154,7 +162,7 @@ void loop() {
 
 void processIncomingCommands() {
   processSerialData();
-  processIncomingArcadeButtons();
+  processIncomingButtons();
 }
 
 void processRandomChangeLane() {
@@ -168,13 +176,29 @@ void processRandomChangeLane() {
   }
 }
 
-void processIncomingArcadeButtons() {
+void processIncomingButtons() {
 
   for ( int i=0; i<NUM_CONTROLLERS; i++) {
 
     if ( controller_enabled[i] == 0 ) {
       continue;
     }
+
+    if ( changelane_pin[i] > 0 ) {
+      if ( digitalRead(changelane_pin[i]) == LOW ) {
+        changelane_button_value[i] = CL_VAL;
+      } else {
+        changelane_button_value[i] = 0;
+      }
+    } 
+
+    if ( brake_pin[i] > 0 ) {
+      if ( digitalRead(brake_pin[i]) == LOW ) {
+        brake_button_value[i] = BRAKE_VAL;
+      } else {
+        brake_button_value[i] = 0;
+      }
+    } 
 
     int reading;
     if ( throttle_pin[i] > 0 ) {
