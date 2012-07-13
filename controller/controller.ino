@@ -64,11 +64,11 @@ const int command = B10001;
 const unsigned int diff_threshold[NUM_CONTROLLERS] = {30, 30, 30, 30, 30, 30};
 const float smooth_filter_val[NUM_CONTROLLERS]     = {0.5, 0.5, 0.5, 0.5, 0.5, 0.5};
 
-const unsigned int throttle_pin[NUM_CONTROLLERS]     = {4, 7, 10, 0, 0, 0};
 unsigned int controller_enabled[NUM_CONTROLLERS]     = {1, 1, 1, 0, 0, 0};
+const unsigned int random_chlane[NUM_CONTROLLERS]    = {1, 1, 1, 1, 1, 1};
+const unsigned int throttle_pin[NUM_CONTROLLERS]     = {4, 7, 10, 0, 0, 0};
 const unsigned int brake_pin[NUM_CONTROLLERS]        = {5, 8, 0, 0, 0, 0};
 const unsigned int changelane_pin[NUM_CONTROLLERS]   = {6, 9, 0, 0, 0, 0};
-const unsigned int random_chlane[NUM_CONTROLLERS]    = {1, 1, 1, 1, 1, 1};
 
 const unsigned int throttle_pulse_timeout[NUM_CONTROLLERS]     = {500, 200, 500, 100, 500, 500};
 const unsigned int default_pulse_multiplier[NUM_CONTROLLERS]   = {15000, 10000, 20000, 10000, 10000, 10000}; 
